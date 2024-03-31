@@ -99,6 +99,8 @@ async def main() -> None:
     try:
         category_info = await url.info()
         print(f"[+] Обнаруженых товаров в категории {category_info[0]}: {category_info[1]}!")
+        print("[+] Внимание: не всегда все из представленных товаров доступны для покупки!")
+        print("[+] Парсер парсит только доступные для покупки товары!")
         print("[+] Начинаю парсинг карточек товаров...")
         link_counter = 0; card_counter = 0
     except Exception as start_error:
