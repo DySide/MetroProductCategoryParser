@@ -1,5 +1,4 @@
 import csv
-import lxml
 import requests
 import asyncio
 from datetime import datetime
@@ -39,11 +38,6 @@ async def get_category_info() -> str:
     return print(f"[+] Количество товаров в категории {category_name}: {category_quantity}!")
 
 
-# Получаем имя категории и текущую дату
-async def get_any_info():
-    return [str(SOURCE_URL[35:].split("/")[-1]), str(datetime.now().date())]
-
-
 # Получаем ссылки на все страницы категории
 async def get_page_quantity() -> list:
     soup = BeautifulSoup(response.text, "lxml")
@@ -77,8 +71,7 @@ async def get_products_cards():
 
 
 async def write_csv():
-    any_info = await get_any_info()
-    filename = f"{any_info[0]}_{any_info[1]}.csv"
+    filename = f"{str(SOURCE_URL[35:].split("/")[-1])}_{str(datetime.now().date())}.csv"
     with open(filename, "w", encoding="utf-8") as file:
         writer = csv.writer(file)
         writer.writerow(("id", "name", "link", "amount", "sale_amount", "brand"))
