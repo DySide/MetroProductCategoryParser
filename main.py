@@ -6,87 +6,124 @@ from bs4 import BeautifulSoup
 from fake_useragent import UserAgent
 
 
-SOURCE_URL = input("[+] Введите ссылку на категорию товара на сайте https://online.metro-cc.ru/: ")
-
-
-if "https://online.metro-cc.ru/category/" not in SOURCE_URL:
-    print("[-] Некорректный ввод!\nВыберите одну из категорий по ссылке - https://online.metro-cc.ru/ и передайте ссылку мне!")
-    print("[-] Пример ссылки: https://online.metro-cc.ru/category/myasnye/myaso/govyadina")
-    exit()
-else:
-    pass
-
-
 useragents = {"User-Agent" : UserAgent().random}
-response = requests.get(SOURCE_URL, headers=useragents)
 
 
-# Проверяем доступность сайта
-async def is_available_url() -> str:
-    if response.ok:
-        return print(f"[+] Сайт доступен! - Начинаю работу...")
-    else:
-        print(f"[-] Сайт недоступен! - Код ответа: {response.status_code}")
-        exit()
+class Category:
+    # Инициализируем атрибуты класса
+    def __init__(self, link: str) -> None:
+        self.link = link
+        self.request = requests.get(link, headers=useragents)
+        self.soup = BeautifulSoup(self.request.text, "lxml")
 
 
-# Получаем информацию о выбраной категории
-async def get_category_info() -> str:
-    soup = BeautifulSoup(response.text, "lxml")
-    category_name = soup.find(class_="subcategory-or-type__heading-title catalog-heading heading__h1").text.strip()
-    category_quantity = soup.find(class_="heading-products-count subcategory-or-type__heading-count").text.strip()
-    return print(f"[+] Количество товаров в категории {category_name}: {category_quantity}!")
+    # Приватный метод для обращения к другим ссылкам
+    async def __any_soup(self, url) -> BeautifulSoup:
+        request = requests.get(url, headers=useragents)
+        return BeautifulSoup(request.text, "lxml")
 
 
-# Получаем ссылки на все страницы категории
-async def get_page_quantity() -> list:
-    soup = BeautifulSoup(response.text, "lxml")
-    all_elements = soup.find(class_="catalog-paginate v-pagination")
-    quantity = all_elements.find_all("li")[-2]
-    print(f"[+] Кол-во обнаруженых страниц - {quantity.text}!")
-    general_url_list = []
-    for i in range(1, int(quantity.text)):
-        general_url_list.append(SOURCE_URL + f"?page={str(i)}")
-    return general_url_list
+    # Проверяем ссылку на валидность и доступность
+    async def is_valid_link(self) -> bool:
+        if "https://online.metro-cc.ru/category/" in self.link and self.request.ok:
+            return True
+        else:
+            return False
 
 
-# Собираем карточки товаров со всех страниц в список
-async def get_products_cards():
-    all_products_info = []
-    all_page_link_list = await get_page_quantity()
-    print("[+] Начинаю парсинг карточек товаров...")
-    for page in all_page_link_list:
-        page_response = requests.get(page, headers=useragents).text
-        page_soup = BeautifulSoup(page_response, "lxml")
-        all_page_products = page_soup.find_all(class_="catalog-2-level-product-card product-card subcategory-or-type__products-item with-prices-drop")
-        for product in all_page_products:
-            id = product.get("id")
-            name = str(product.find(class_="product-card-name__text").text).strip()
-            link = str("https://online.metro-cc.ru" + product.find(class_="product-card-photo__link reset-link").get("href"))
-            amount = str(product.find(class_="product-price__sum-rubles").text).strip()
-            sale_amount = str(product.find_all(class_="product-price__sum-rubles")[-1].text).strip()
-            brand = "brand".replace("\n", "")
-            all_products_info.append((id, name, link, amount, sale_amount, brand))
-    return all_products_info
+    # Получаем информацию о категории - Имя, Кол-во товаров
+    async def info(self) -> list:
+        category_name = self.soup.find(class_="subcategory-or-type__heading-title catalog-heading heading__h1").text
+        category_quantity = self.soup.find(class_="heading-products-count subcategory-or-type__heading-count").text
+        return [category_name.strip(), category_quantity.strip()]
+    
+
+    # Получаем кол-во страниц в категории
+    async def __page_quantity(self) -> int:
+        all_elements = self.soup.find(class_="catalog-paginate v-pagination")
+        quantity = all_elements.find_all("li")[-2]
+        return int(quantity.text)
 
 
-async def write_csv():
-    filename = f"{str(SOURCE_URL[35:].split("/")[-1])}_{str(datetime.now().date())}.csv"
-    with open(filename, "w", encoding="utf-8") as file:
+    # Получаем ссылки на все страницы категории
+    async def all_general_pages(self) -> list:
+        pages = []
+        for page_num in range(1, await self.__page_quantity()):
+            pages.append(self.link + f"?page={str(page_num)}")
+        return pages
+
+
+    # Получаем карточки товаров с переданной страницы
+    async def all_products_card(self, general_page_link: str) -> list:
+        all_products_card = []
+        soup = await self.__any_soup(general_page_link)
+        page_cards = soup.find_all(class_="catalog-2-level-product-card product-card subcategory-or-type__products-item with-prices-drop")
+        for card in page_cards:
+            all_products_card.append(card)
+        return all_products_card
+    
+
+    # Получаем информацию о товаре из переданной карточки
+    async def product_info(self, product_card: list) -> tuple:
+        id = product_card.get("id")
+        name = product_card.find(class_="product-card-name__text").text
+        link = "https://online.metro-cc.ru" + product_card.find(class_="product-card-photo__link reset-link").get("href")
+        amount = product_card.find(class_="product-price__sum-rubles").text
+        sale_amount = product_card.find_all(class_="product-price__sum-rubles")[-1].text
+        brand_page_soup = await self.__any_soup(link)
+        brand = brand_page_soup.find_all(class_="product-attributes__list-item")[6].find("a").text
+        return (id, name.strip(), link, f"{amount.strip()} rub", f"{sale_amount.strip()} rub", brand.strip())
+
+
+async def csv_writer(filename: str, info_tuple: str) -> None:
+    with open(filename, "a", encoding="utf-8", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow(info_tuple)
+
+
+async def main() -> None:
+    url = Category(input("[+] Введите ссылку на категорию товара на сайте https://online.metro-cc.ru/: "))
+
+    # Проверяем ссылку на валидность
+    try:
+        if not await url.is_valid_link():
+            print("[-] Что то не так с ссылкой или сайт не доступен!")
+            print(f"[-] Статус код ответа сайта - {url.request.status_code}")
+            exit()
+        else:
+            pass
+    except Exception as check_available_error:
+        print(f"[-] Произошла ошибка при проверке доступности сайта!\nОшибка: {check_available_error}")
+
+    # Выводим пользователю информацию о категории
+    try:
+        category_info = await url.info()
+        print(f"[+] Обнаруженых товаров в категории {category_info[0]}: {category_info[1]}!")
+        print("[+] Начинаю парсинг карточек товаров...")
+        link_counter = 0; card_counter = 0
+    except Exception as start_error:
+        print(f"[-] Произошла ошибка при попытке начать парсинг!\nОшибка: {start_error}")
+
+    # Создаём csv-файл с заголовками
+    filename = f"{url.link[35:].split('/')[-1]}_{str(datetime.now().date())}.csv"
+    with open(filename, "w", encoding="utf-8", newline="") as file:
         writer = csv.writer(file)
         writer.writerow(("id", "name", "link", "amount", "sale_amount", "brand"))
 
-    with open(filename, "a", encoding="utf-8") as file:
-        writer = csv.writer(file)
-        for product in await get_products_cards():
-            writer.writerow(product)
-        print("[+] Основная масса товаров спаршена! - Осталось немного...")
+    # Начинаем парсить продукты со страниц
+    try:
+        for link in await url.all_general_pages():
+            link_counter += 1
+            for card in await url.all_products_card(link):
+                card_counter += 1
+                await csv_writer(filename, await url.product_info(card))
+    except Exception as progress_error:
+        print(f"[-] Произошла ошибка при парсинге!\nОшибка: {progress_error}")
 
-
-async def main():
-    await is_available_url()
-    await get_category_info()
-    await write_csv()
+    # Информируем о завершении работы скрипта
+    print(f"[+] Товаров распаршено - {card_counter}!")
+    print(f"[+] Страниц распаршено - {link_counter}!")
+    print(f"[+] Готовый csv-файл сохранён под названием - {filename}!")
 
 
 if __name__ == "__main__":
